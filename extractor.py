@@ -72,19 +72,20 @@ def is_string_literal(expression):
 def literal_expression_for_jsonifyable(jsonifyable):
     return parse_fragment(json.dumps(jsonifyable))
 
-message_pattern = {
-    'type': 'CallExpression',
-    'callee': {
-        'type': 'Identifier',
-        'name': 'i18n'
-    }
-}
-def message_expressions_in_tree(tree):
-    for o in objects_in_tree(tree):
-        if matches(o, message_pattern):
-            if not len(o['arguments']) == 1:
-                raise ValueError("i18n function must have exactly one argument: line %(line)s column %(column)s" % o['loc']['start'])
-            yield o
+
+def message_expressions_in_tree(tree, stack=[]):
+    iterable = tree.values() if hasattr(tree, 'values') else tree
+    if not hasattr(iterable, '__iter__'): return
+    for child in iterable:
+        if _is_message(child, stack):
+            yield child
+        if not isinstance(child, basestring):
+            for x in message_expressions_in_tree(child, stack + [tree]):
+                yield x
+
+def _is_message(tree, stack):
+    return is_dom_node(tree) and not is_dom_node(stack[-1])
+
 
 dom_node_pattern = {
     "type": "CallExpression",
@@ -162,7 +163,11 @@ def immediate_subexpressions(expression):
     elif type == 'ConditionalExpression':
         return []
     elif type in ('NewExpression', 'CallExpression'):
-        return e.arguments[1:]
+        if is_dom_node(expression):
+            return e.arguments[1:]
+        else:
+            print e.arguments
+            return e.arguments[:]
     elif type == 'MemberExpression':
         return []
     elif type == 'YieldExpression':
@@ -220,7 +225,8 @@ def babel_message_for_expression(expression):
             return "[%s:%s]" % (expression.get('number'), "".join(subs))
 
 def is_numberable(expression):
-    return expression['type'] == 'CallExpression'
+    return not is_interesting(expression) or expression['type'] == 'CallExpression'
+    # return expression['type'] == 'CallExpression'
 
 def visit_numbers_upon_expressions(expression, visitor, count=0):
     if is_numberable(expression):
@@ -331,16 +337,21 @@ def extract(fileobj, keywords, comment_tags, options):
 
 
 if __name__ == '__main__':
-    program = parse_file('/Users/david/code/app-ido-i3/var/out/green-1/js/org-intake.js')
-    expr = list(message_expressions_in_tree(program))[-1]['arguments'][0]
+    program = parse_file('test.js')
+    expr = list(message_expressions_in_tree(program))[0]
+    # pprint( list(message_expressions_in_tree(program))[-1] )
+    # print len(list(message_expressions_in_tree(program)))
+    for x in message_expressions_in_tree(program):
+        orig_message = babel_message_for_expression(understand(x)[0])
+        print orig_message
 
-    orig_message = babel_message_for_expression(understand(expr)[0])
-    print orig_message
-    ident = expression_translated_by_message(expr, orig_message)
-    print "--------"
+    # orig_message = babel_message_for_expression(understand(expr)[0])
+    # print orig_message
+    # ident = expression_translated_by_message(expr, orig_message)
+    # print "--------"
 
-    recon = expression_translated_by_message(expr, translated)
-    print generate(recon)
-    print "--------"
-    print generate(expr)
-    print "Does the identity hold?", generate(ident) == generate(expr)
+    # recon = expression_translated_by_message(expr, translated)
+    # print generate(recon)
+    # print "--------"
+    # print generate(expr)
+    # print "Does the identity hold?", generate(ident) == generate(expr)
